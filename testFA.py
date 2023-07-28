@@ -24,22 +24,29 @@ class FiniteAutomaton:
 
     def input_transitions(self):
         epsilon = "$"
-
         for state in sorted(self.states):
             for symbol in sorted(self.alphabet, key=lambda x: int(x) if x.isdigit() else x):
                 next_states_input = input("Enter the next states for transition ({} -{}-> ?) "
-                                          "separated by commas: ".format(state, symbol))
+                                          "separated by commas (leave empty if none): ".format(state, symbol))
                 next_states = [state.strip() for state in next_states_input.split(",")]
                 if next_states:
                     self.transitions.setdefault(state, {}).setdefault(symbol, set(next_states))
+                else:
+                    # If next_states is empty, remove the entry for the transition
+                    self.transitions.get(state, {}).pop(symbol, None)
 
-            next_states_epsilon_input = input("Enter the next states for epsilon transition ({} -{}-> ?) "
-                                              "separated by commas (leave empty if none): ".format(state, epsilon))
-            next_states_epsilon = [state.strip() for state in next_states_epsilon_input.split(",")]
-            if next_states_epsilon:
-                self.transitions.setdefault(state, {}).setdefault(epsilon, set(next_states_epsilon))
-            else:
-                self.transitions.get(state, {}).pop(epsilon, None)
+        has_epsilon = input("Are there any epsilon transitions? (y/n): ")
+        if has_epsilon.lower() == 'y':
+            for state in sorted(self.states):
+                next_states_epsilon_input = input("Enter the next states for epsilon transition ({} -{}-> ?) "
+                                                  "separated by commas (leave empty if none): ".format(state, epsilon))
+                next_states_epsilon = [state.strip() for state in next_states_epsilon_input.split(",")]
+                if next_states_epsilon:
+                    self.transitions.setdefault(state, {}).setdefault(epsilon, set(next_states_epsilon))
+                else:
+                    # If next_states_epsilon is empty, remove the entry for the epsilon transition
+                    self.transitions.get(state, {}).pop(epsilon, None)
+
 
     def input_initial_state(self):
         self.initial_state = input("Enter the initial state: ")
@@ -49,8 +56,9 @@ class FiniteAutomaton:
         self.final_states = set(final_states.split(","))
 
     def display_transition_table(self):
+        epsilon = "$"
         print("Transition Table:")
-        header = [""] + sorted(self.alphabet)
+        header = [epsilon] + sorted(self.alphabet)
         max_state_length = max(len(state) for state in self.states)
         max_symbol_length = max(len(symbol) for symbol in header)
         row_format = "{:<{}} |".format("", max_state_length)
@@ -60,7 +68,7 @@ class FiniteAutomaton:
         print("-" * ((max_state_length + max_symbol_length + 3) * (len(header) + 1)))
         for state in sorted(self.states):
             row = "{:<{}} |".format(state, max_state_length)
-            for symbol in sorted(self.alphabet):
+            for symbol in header:
                 if state in self.transitions and symbol in self.transitions[state]:
                     next_states = sorted(self.transitions[state][symbol])
                     row += " {:<{}} |".format(','.join(next_states), max_symbol_length)
@@ -69,21 +77,18 @@ class FiniteAutomaton:
             print(row)
 
     def is_nfa(self):
-        if len(self.states) == 1 and len(self.transitions) == 1 and not any(self.transitions.values()):
-            return False
-
-        epsilon = "$"
-
         for state, transitions in self.transitions.items():
-            if set(transitions.keys()) != self.alphabet or epsilon in transitions:
-                return True
-            for targets in transitions.values():
-                if len(targets) > 1:
+            for symbol in self.alphabet:
+                if symbol in transitions and len(transitions[symbol]) > 1:
                     return True
+
+        # Check for epsilon transitions (NFA condition)
+        epsilon = "$"
+        for state, transitions in self.transitions.items():
+            if epsilon in transitions and len(transitions[epsilon]) > 0:
+                return True
+
         return False
-
-
-
 
     def test_string(self, string):
         current_states = {self.initial_state}
@@ -96,25 +101,27 @@ class FiniteAutomaton:
         return any(state in self.final_states for state in current_states)
 
     def convert_to_dfa(self):
-        dfa = FiniteAutomaton()
-        dfa.states = {frozenset(self.epsilon_closure({self.initial_state}))}
-        dfa.alphabet = self.alphabet
-        dfa.initial_state = frozenset(self.epsilon_closure({self.initial_state}))
-        queue = [dfa.initial_state]
-        visited = set()
-        while queue:
-            current_state = queue.pop(0)
-            visited.add(current_state)
-            for symbol in dfa.alphabet:
-                next_state = self.epsilon_closure(self.move(current_state, symbol))
-                if next_state not in visited:
-                    queue.append(next_state)
-                dfa.transitions.setdefault(current_state, {})[symbol] = next_state
-                if next_state not in dfa.states:
-                    dfa.states.add(next_state)
-                    if any(state in self.final_states for state in next_state):
-                        dfa.final_states.add(next_state)
-        return dfa
+            dfa = FiniteAutomaton()
+            dfa.states = {frozenset(self.epsilon_closure({self.initial_state}))}
+            dfa.alphabet = self.alphabet
+            dfa.initial_state = frozenset(self.epsilon_closure({self.initial_state}))
+            queue = [dfa.initial_state]
+            visited = set()
+
+            while queue:
+                current_state = queue.pop(0)
+                visited.add(current_state)
+                for symbol in dfa.alphabet:
+                    next_state = frozenset(self.epsilon_closure(self.move(current_state, symbol)))
+                    if next_state not in visited:
+                        queue.append(next_state)
+                    dfa.transitions.setdefault(current_state, {})[symbol] = next_state
+                    if next_state not in dfa.states:
+                        dfa.states.add(next_state)
+                        if any(state in self.final_states for state in next_state):
+                            dfa.final_states.add(next_state)
+
+            return dfa
 
     def move(self, states, symbol):
         next_states = set()
@@ -156,6 +163,7 @@ class FiniteAutomaton:
 
 def main():
     fa = FiniteAutomaton()
+    fa_input = False
 
     while True:
         print("Finite Automaton Menu")
@@ -171,7 +179,12 @@ def main():
 
         if choice == "1":
             fa.input_fa()
+            fa_input = True
         elif choice == "2":
+            if not fa_input:
+                print("Please input the Finite Automaton first.")
+                continue
+
             string = input("Enter the string to test: ")
             if fa.is_nfa():
                 if fa.test_string(string):
@@ -184,13 +197,24 @@ def main():
                 else:
                     print("Rejected")
         elif choice == "3":
-            fa = fa.convert_to_dfa()
+            dfa = fa.convert_to_dfa()
+            dfa.display_transition_table()
+            fa_input = True
         elif choice == "4":
+            if not fa_input:
+                print("Please input the Finite Automaton first.")
+                continue
             fa.minimize_dfa()
         elif choice == "5":
+            if not fa_input:
+                print("Please input the Finite Automaton first.")
+                continue
             file_name = input("Enter the file name to save: ")
             fa.save_data(file_name)
         elif choice == "6":
+            if not fa_input:
+                print("Please input the Finite Automaton first.")
+                continue
             if fa.is_nfa():
                 print("The automaton is an NFA.")
             else:
